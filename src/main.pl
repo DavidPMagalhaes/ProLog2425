@@ -5,7 +5,5 @@
 play :-
     sight,
     settings(GameState), !,
-    write('Initial Board: '), nl,
     board(5, Board),
-    display_game(Board),
-    game_loop(GameState).
+    game_loop([Board,Player,[],0]).

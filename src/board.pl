@@ -1,4 +1,5 @@
-:- module(board, board/2, [display_game/1, position/4, set_position/5, get_symbol/2]).
+:- module(board, [board/2, display_game/1, position/4, set_position/5, get_symbol/2]).
+:- use_module(library(lists)).
 
 board(5,[
     [empty, empty, empty, empty, empty],

@@ -1,3 +1,6 @@
+:- module(settings, [settings/1, sight/0]).
+
+
 :-use_module(board).
 
 :- use_module(library(lists)).
