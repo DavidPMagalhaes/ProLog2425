@@ -84,6 +84,5 @@ choose_white_pieces :-
     ).
 
 settings([Board, Player, [], 0]) :-
-    sight,
     read_initial_menu,
     choose_white_pieces.
