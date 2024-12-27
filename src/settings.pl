@@ -7,6 +7,10 @@
 :- use_module(library(between)).
 :- use_module(library(system), [now/1]).
 
+
+
+
+
 % Header
 sight:-
     write('======================\n'),
@@ -32,15 +36,20 @@ write_inital_menu :-
 write_inital_menu.
 
 
+
+
 % Initial Menu Options
 option(1):-
     write('Player 1 Name'),
-    read(Name1),
+    read(Name1), 
+    retractall(name_of(player1, _)), % Remove quaisquer fatos anteriores de player1
     asserta(name_of(player1, Name1)),
     write('Player 2 Name'),
-    read(Name2),
+    read(Name2), 
+    retractall(name_of(player2, _)), % Remove quaisquer fatos anteriores de player2
     asserta(name_of(player2, Name2)),
     write('\n').
+
 option(2):-
     write('Player 1 Name'),
     read(Name1),
@@ -52,6 +61,14 @@ option(3):-
     asserta(name_of(player2, 'Machine2')), !,
     set_difficulty(player1),
     set_difficulty(player2).
+
+
+
+:- dynamic name_of/2.
+
+% Inicialize com valores padrão para evitar erros
+name_of(player1, player1).
+name_of(player2, player2).
 
 % Set Difficulty
 difficulty(1, easy).
@@ -81,11 +98,18 @@ choose_white_pieces :-
     format('2. ~w~n', [Name2]),
     repeat,
     read(Choice),
-    (   (Choice == 1, asserta(starts_first(player1)), format('~w will go first.~n', [Name1]), !) ;
-        (Choice == 2, asserta(starts_first(player2)), format('~w will go first.~n', [Name2]), !) ;
-        (write('Invalid choice, try again.'), nl, fail)
+    (   Choice == 1 -> 
+        retractall(starts_first(_)), % Remove fatos antigos
+        asserta(starts_first(player1)), 
+        format('~w will go first.~n', [Name1]), !;
+        Choice == 2 -> 
+        retractall(starts_first(_)), % Remove fatos antigos
+        asserta(starts_first(player2)), 
+        format('~w will go first.~n', [Name2]), !;
+        write('Invalid choice, try again.'), nl, fail
     ).
 
 settings([Board, Player, [], 0]) :-
     read_initial_menu,
     choose_white_pieces.
+

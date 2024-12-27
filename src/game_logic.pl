@@ -1,4 +1,5 @@
-:- module(game_logic, [game_loop/1]).
+
+:- module(game_logic, [game_loop/1, valid_moves/3, apply_move/4, player_has_stack/2]).
 
 :- use_module(board).
 :- use_module(settings).
@@ -9,17 +10,18 @@ game_loop([Board, Player, MoveHistory, TurnCount]) :-
     display_game(Board),
     (   game_over(Board, Player) ->
         declare_winner(Player);
-        valid_moves(Board, Player, Moves),
-        play_turn(Board, Player, Moves, MoveHistory, TurnCount, NewBoard, NewMoveHistory),
-        update_sight_lines(NewBoard, Player, UpdatedBoard), % Update sight lines here
+        valid_moves(Board, Player, Moves), % Calcule os movimentos válidos antes da jogada
+        play_turn(Board, Player, Moves, MoveHistory, TurnCount, TempBoard, NewMoveHistory),
+        update_sight_lines(TempBoard, Player, UpdatedBoard), % Update sight lines here
         next_player(Player, NextPlayer),
         NewTurnCount is TurnCount + 1,
-        game_loop([UpdatedBoard, NextPlayer, NewMoveHistory, NewTurnCount])
+        game_loop([UpdateddBoard, NextPlayer, NewMoveHistory, NewTurnCount])
     ).
 
 % Check if the game is over
 game_over(Board, Player) :-
-    \+ valid_moves(Board, Player, _).
+    \+ valid_moves(Board, Player, _),
+    format('~w has no valid moves. Game over!~n', [Player]).
 
 % Declare the winner
 declare_winner(Player) :-
@@ -35,15 +37,16 @@ valid_moves(Board, Player, Moves) :-
 
 % Check if a player has a stack on the board (only consider stacks with more than 1 piece)
 player_has_stack(Board, Player) :-
-    stack_for_player(Player, Stack),
+    stack_for_player(Player, ValidStacks), % Lista de todas as pilhas válidas para o jogador
     member(Row, Board),
     member(Stack, Row),
-    Stack \= white_one,  % Exclude single pieces (W1, B1)
-    Stack \= black_one.
+    member(Stack, ValidStacks), % Verifica se a stack pertence ao jogador
+    length(Stack, N),
+    N > 1. % Apenas considera pilhas com mais de 1 peça
 
 % Find all valid type 1 (placement) moves
 find_placement_moves(Board, Moves) :-
-    findall([Col, Row], position(Board, Col, Row, empty), Moves).
+    findall([Col, Row], position(Board, Col, Row, [empty]), Moves).
 
 % Find all valid type 2 (stack movement) moves
 find_stack_moves(Board, Player, Moves) :-
@@ -57,8 +60,38 @@ find_stack_moves(Board, Player, Moves) :-
 % Check if a stack belongs to the player (only consider stacks with more than 1 piece)
 stack_belongs_to_player(Stack, Player) :-
     stack_for_player(Player, Stack),
-    Stack \= white_one,  % Exclude single pieces (W1, B1)
-    Stack \= black_one.
+    Stack \= [white_one],  % Exclude single pieces (W1, B1)
+    Stack \= [black_one].
+
+% Prioritize moves: stacks > single pieces; larger stacks > smaller stacks
+prioritize_moves(Moves, Board, Player, PrioritizedMoves) :-
+    include(stack_move(Board, Player), Moves, StackMoves),
+    include(placement_move(Board, Player), Moves, PlacementMoves),
+    sort_stacks(StackMoves, SortedStackMoves),
+    append(SortedStackMoves, PlacementMoves, PrioritizedMoves).
+
+stack_move(Board, Player, [FromCol, FromRow, ToCol, ToRow]) :-
+    position(Board, FromCol, FromRow, Stack),
+    stack_belongs_to_player(Stack, Player).
+
+placement_move(Board, Player, [Col, Row]) :-
+    position(Board, Col, Row, [empty]).
+
+sort_stacks(StackMoves, SortedStackMoves) :-
+    maplist(stack_size_pair, StackMoves, Pairs),
+    keysort(Pairs, SortedPairs),
+    pairs_values(SortedPairs, SortedStackMoves).
+
+pairs_values([], []).
+pairs_values([_-Value | Rest], [Value | Values]) :-
+    pairs_values(Rest, Values).
+
+stack_size_pair(Move, Size-Move) :-
+    stack_size(Move, Size).
+
+stack_size([FromCol, FromRow, _, _], Size) :-
+    position(Board, FromCol, FromRow, Stack),
+    length(Stack, Size).
 
 % Check for adjacent empty spaces
 adjacent_space(Board, FromCol, FromRow, ToCol, ToRow) :-
@@ -67,7 +100,7 @@ adjacent_space(Board, FromCol, FromRow, ToCol, ToRow) :-
         (DC \= 0; DR \= 0),  % Ensure it's not the same position
         ToCol is FromCol + DC,  % New column (ToCol) calculated
         ToRow is FromRow + DR,  % New row (ToRow) calculated
-        position(Board, ToCol, ToRow, empty)  % Check if the position is empty
+        position(Board, ToCol, ToRow, [empty])  % Check if the position is empty
     ).
 
 % Play a turn: ask the player for input and update the game state
@@ -96,8 +129,9 @@ apply_move(Board, [Col, Row], Player, NewBoard) :-  % Type 1 move (place a piece
 
 apply_move(Board, [FromCol, FromRow, ToCol, ToRow], Player, NewBoard) :-  % Type 2 move (move a stack)
     position(Board, FromCol, FromRow, Stack),
-    set_position(Board, FromCol, FromRow, empty, TempBoard), % Remove from old position
-    set_position(TempBoard, ToCol, ToRow, Stack, NewBoard). % Place on new position
+    set_position(Board, FromCol, FromRow, [empty], TempBoard1), % Remove from old position
+    set_position(TempBoard1, ToCol, ToRow, Stack, TempBoard2), % Place on new position
+    update_sight_lines(TempBoard2, Player, NewBoard). % Update sight lines here
 
 % Get the stack corresponding to the player (this ensures the correct symbols are used)
 stack_for_player(player1, Stack) :-
@@ -111,8 +145,73 @@ next_player(player2, player1).
 
 % Update the sight lines after a move: Check up, down, left, right, and diagonals
 update_sight_lines(Board, Player, UpdatedBoard) :-
-    findall([Col, Row], position(Board, Col, Row, Player), Pieces),
-    promote_pieces(Board, Player, Pieces, UpdatedBoard).
+    findall([Col, Row], (position(Board, Col, Row, Stack), stack_belongs_to_player(Stack, Player)), PlayerPieces),
+    update_stacks_in_sight(Board, PlayerPieces, Player, UpdatedBoard).
+
+
+%update stacks and singletons in sight lines
+update_stacks_in_sight(Board, [], _, Board).
+update_stacks_in_sight(Board, [[Col, Row] | Rest], Player, UpdatedBoard) :-
+    find_sight_positions(Board, [Col, Row], SightPositions),
+    update_sight_positions(Board, SightPositions, Player, TempBoard),
+    update_stacks_in_sight(TempBoard, Rest, Player, UpdatedBoard).
+
+update_sight_positions(Board, [], _, Board).
+update_sight_positions(Board, [[Col, Row] | Rest], Player, UpdatedBoard) :-
+    position(Board, Col, Row, Stack),
+    stack_belongs_to_player(Stack, Player),
+    add_piece_to_stack(Stack, Player, NewStack),
+    set_position(Board, Col, Row, NewStack, TempBoard),
+    update_sight_positions(TempBoard, Rest, Player, UpdatedBoard).
+update_sight_positions(Board, [_ | Rest], Player, UpdatedBoard) :-
+    update_sight_positions(Board, Rest, Player, UpdatedBoard).
+
+add_piece_to_stack(Stack, Player, NewStack) :-
+    stack_for_player(Player, Piece),
+    append(Stack, [Piece], NewStack).
+
+
+%add pieces to all stacks in sight
+add_pieces_to_sight(Board, [], _, Board).
+add_pieces_to_sight(Board, [[Col, Row] | Rest], Player, NewBoard) :-
+    position(Board, Col, Row, Piece),
+    (   piece_belongs_to_player(Piece, Player) ->
+        promote_piece(Piece, NewPiece),
+        set_position(Board, Col, Row, NewPiece, TempBoard);
+        TempBoard = Board
+    ),
+    add_pieces_to_sight(TempBoard, Rest, Player, NewBoard).
+
+%find all positions in sight of a piece (same row, column, and diagonals)
+find_sight_positions(Board, [Col, Row], SightPositions) :-
+    findall([C, R], (adjacent_space(Board, Col, Row, C, R), position(Board, C, R, _)), SightPositions).
+
+%check if two positions are in line of sight
+line_of_sight(Board, [Col1, Row1], [Col2, Row2]) :-
+    nonvar(Col1), nonvar(Row1), nonvar(Col2), nonvar(Row2), % Ensure variables are instantiated
+    (   Col1 =:= Col2
+    ; Row1 =:= Row2
+    ; abs(Col1 - Col2) =:= abs(Row1 - Row2)
+    ),
+    clear_path(Board, [Col1, Row1], [Col2, Row2]).
+
+%check if there are no blocking pieces between two positions
+clear_path(Board, [Col1, Row1], [Col2, Row2]) :-
+    %calculate steps for direction
+    DX is sign(Col2 - Col1),
+    DY is sign(Row2 - Row1),
+    %Iterate through positions between start and end
+    \+ (between(1, max(abs(Col1 - Col2), abs(Row1 - Row2)), Step),
+        C is Col1 + Step * DX,
+        R is Row1 + Step * DY,
+        position(Board, C, R, Piece),
+        Piece \= [empty]).
+
+%check if a piece belongs to a player
+piece_belongs_to_player(Piece, Player1) :-
+    member(Piece, [white_one, white_two, white_three, white_four, white_five]).
+piece_belongs_to_player(Piece, Player2) :-
+    member(Piece, [black_one, black_two, black_three, black_four, black_five]).
 
 % Promote pieces in sight lines
 promote_pieces(Board, Player, [], Board).
@@ -123,12 +222,17 @@ promote_pieces(Board, Player, [[Col, Row] | Rest], NewBoard) :-
     promote_pieces(TempBoard, Player, Rest, NewBoard).
 
 % Promote a piece (e.g., white_one -> white_two)
-promote_piece(white_one, white_two).
-promote_piece(white_two, white_three).
-promote_piece(white_three, white_four).
-promote_piece(white_four, white_five).
-promote_piece(black_one, black_two).
-promote_piece(black_two, black_three).
-promote_piece(black_three, black_four).
-promote_piece(black_four, black_five).
-promote_piece(Piece, Piece).  % No promotion if it's already at the highest level
+%promote_piece(white_one, white_two).
+%promote_piece(white_two, white_three).
+%promote_piece(white_three, white_four).
+%promote_piece(white_four, white_five).
+%promote_piece(black_one, black_two).
+%promote_piece(black_two, black_three).
+%promote_piece(black_three, black_four).
+%promote_piece(black_four, black_five).
+%promote_piece(Piece, Piece).  % No promotion if it's already at the highest level
+
+promote_piece(Piece, [Piece | Stack], [Piece | NewStack]) :-
+    length(Stack, N),
+    N < 5, !.
+promote_piece(Stack, Stack).  % No promotion if it's already at the highest level 
