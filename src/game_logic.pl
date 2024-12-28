@@ -1,5 +1,5 @@
 
-:- module(game_logic, [game_loop/1, valid_moves/3, apply_move/4, player_has_stack/2]).
+:- module(game_logic, [game_loop/1, valid_moves/3, apply_move/4, player_has_stack/2, find_placement_moves/2, find_stack_moves/3, promote_pieces/3, update_sight_lines/3, piece_belongs_to_player/2]).
 
 :- use_module(board).
 :- use_module(settings).
@@ -10,12 +10,12 @@ game_loop([Board, Player, MoveHistory, TurnCount]) :-
     display_game(Board),
     (   game_over(Board, Player) ->
         declare_winner(Player);
-        valid_moves(Board, Player, Moves), % Calcule os movimentos válidos antes da jogada
-        play_turn(Board, Player, Moves, MoveHistory, TurnCount, TempBoard, NewMoveHistory),
-        update_sight_lines(TempBoard, Player, UpdatedBoard), % Update sight lines here
+        valid_moves(Board, Player, Moves),
+        play_turn(Board, Player, Moves, MoveHistory, TurnCount, NewBoard, NewMoveHistory),
+        update_sight_lines(NewBoard, Player, UpdatedBoard), % Update sight lines here
         next_player(Player, NextPlayer),
         NewTurnCount is TurnCount + 1,
-        game_loop([UpdateddBoard, NextPlayer, NewMoveHistory, NewTurnCount])
+        game_loop([UpdatedBoard, NextPlayer, NewMoveHistory, NewTurnCount])
     ).
 
 % Check if the game is over
@@ -46,7 +46,7 @@ player_has_stack(Board, Player) :-
 
 % Find all valid type 1 (placement) moves
 find_placement_moves(Board, Moves) :-
-    findall([Col, Row], position(Board, Col, Row, [empty]), Moves).
+    findall([Col, Row], position(Board, Col, Row, empty), Moves).
 
 % Find all valid type 2 (stack movement) moves
 find_stack_moves(Board, Player, Moves) :-
@@ -60,8 +60,8 @@ find_stack_moves(Board, Player, Moves) :-
 % Check if a stack belongs to the player (only consider stacks with more than 1 piece)
 stack_belongs_to_player(Stack, Player) :-
     stack_for_player(Player, Stack),
-    Stack \= [white_one],  % Exclude single pieces (W1, B1)
-    Stack \= [black_one].
+    Stack \= white_one,  % Exclude single pieces (W1, B1)
+    Stack \= black_one.
 
 % Prioritize moves: stacks > single pieces; larger stacks > smaller stacks
 prioritize_moves(Moves, Board, Player, PrioritizedMoves) :-
@@ -75,7 +75,7 @@ stack_move(Board, Player, [FromCol, FromRow, ToCol, ToRow]) :-
     stack_belongs_to_player(Stack, Player).
 
 placement_move(Board, Player, [Col, Row]) :-
-    position(Board, Col, Row, [empty]).
+    position(Board, Col, Row, empty).
 
 sort_stacks(StackMoves, SortedStackMoves) :-
     maplist(stack_size_pair, StackMoves, Pairs),
@@ -100,7 +100,7 @@ adjacent_space(Board, FromCol, FromRow, ToCol, ToRow) :-
         (DC \= 0; DR \= 0),  % Ensure it's not the same position
         ToCol is FromCol + DC,  % New column (ToCol) calculated
         ToRow is FromRow + DR,  % New row (ToRow) calculated
-        position(Board, ToCol, ToRow, [empty])  % Check if the position is empty
+        position(Board, ToCol, ToRow, empty)  % Check if the position is empty
     ).
 
 % Play a turn: ask the player for input and update the game state
@@ -108,8 +108,15 @@ play_turn(Board, Player, Moves, MoveHistory, TurnCount, NewBoard, NewMoveHistory
     format('~w, it is your turn.~n', [Player]),
     format('Valid moves: ~w~n', [Moves]),
     prompt_move(Player, Moves, SelectedMove),
-    apply_move(Board, SelectedMove, Player, NewBoard),
-    append(MoveHistory, [SelectedMove], NewMoveHistory).
+    apply_move(Board, SelectedMove, Player, TempBoard),
+    append(MoveHistory, [SelectedMove], NewMoveHistory),
+    set_last_played(SelectedMove, Player), % Registra a peça jogada
+    NewBoard = TempBoard. % Atualiza o tabuleiro
+
+set_last_played([Col, Row], Player) :-
+    retractall(last_played(Player, _)),
+    assertz(last_played(Player, [Col, Row])).
+
 
 % Prompt the player to choose a move
 prompt_move(Player, Moves, SelectedMove) :-
@@ -123,15 +130,22 @@ prompt_move(Player, Moves, SelectedMove) :-
     ).
 
 % Apply the selected move to the board
-apply_move(Board, [Col, Row], Player, NewBoard) :-  % Type 1 move (place a piece)
-    stack_for_player(Player, Stack),
-    set_position(Board, Col, Row, Stack, NewBoard).
+apply_move(Board, [Col, Row], Player, TempBoard) :-  % Type 1 move (place a piece)
+    initial_piece(Player, Piece), % Garante que a peça inicial é usada
+    set_position(Board, Col, Row, Piece, TempBoard).
 
-apply_move(Board, [FromCol, FromRow, ToCol, ToRow], Player, NewBoard) :-  % Type 2 move (move a stack)
+
+% Define a peça inicial para cada jogador
+initial_piece(player1, white_one).
+initial_piece(player2, black_one).
+
+apply_move(Board, [FromCol, FromRow, ToCol, ToRow], Player, UpdatedBoard) :-  % Type 2 move (move a stack)
     position(Board, FromCol, FromRow, Stack),
-    set_position(Board, FromCol, FromRow, [empty], TempBoard1), % Remove from old position
-    set_position(TempBoard1, ToCol, ToRow, Stack, TempBoard2), % Place on new position
-    update_sight_lines(TempBoard2, Player, NewBoard). % Update sight lines here
+    demote_stack(Stack, NewStack),
+    set_position(Board, FromCol, FromRow, NewStack, TempBoard1), % Remove from old position
+    stack_for_player(Player, TopPiece),
+    set_position(TempBoard1, ToCol, ToRow, TopPiece, TempBoard2), % Place on new position
+    update_sight_lines(TempBoard2, Player, UpdatedBoard). % Update sight lines here
 
 % Get the stack corresponding to the player (this ensures the correct symbols are used)
 stack_for_player(player1, Stack) :-
@@ -145,9 +159,19 @@ next_player(player2, player1).
 
 % Update the sight lines after a move: Check up, down, left, right, and diagonals
 update_sight_lines(Board, Player, UpdatedBoard) :-
-    findall([Col, Row], (position(Board, Col, Row, Stack), stack_belongs_to_player(Stack, Player)), PlayerPieces),
-    update_stacks_in_sight(Board, PlayerPieces, Player, UpdatedBoard).
+    findall([Col, Row], 
+    (position(Board, Col, Row, Piece), piece_belongs_to_player(Piece, Player)), 
+    PlayerPieces),
+    last_played(Player, RecentlyPlayed), % Recupera a última peça jogada
+    exclude_recently_played(PlayerPieces, RecentlyPlayed, PiecesToPromote),
+    promote_pieces(Board, PiecesToPromote, UpdatedBoard).
 
+% Excluir a peça recentemente jogada
+exclude_recently_played(PlayerPieces, RecentlyPlayed, PiecesToPromote) :-
+    exclude(is_recently_played_or_enemy(RecentlyPlayed), PlayerPieces, PiecesToPromote).
+
+is_recently_played_or_enemy(RecentlyPlayed, [Col, Row]) :-
+    RecentlyPlayed = [Col, Row]. % Exclui apenas a peça recentemente jogada
 
 %update stacks and singletons in sight lines
 update_stacks_in_sight(Board, [], _, Board).
@@ -158,17 +182,14 @@ update_stacks_in_sight(Board, [[Col, Row] | Rest], Player, UpdatedBoard) :-
 
 update_sight_positions(Board, [], _, Board).
 update_sight_positions(Board, [[Col, Row] | Rest], Player, UpdatedBoard) :-
-    position(Board, Col, Row, Stack),
-    stack_belongs_to_player(Stack, Player),
-    add_piece_to_stack(Stack, Player, NewStack),
-    set_position(Board, Col, Row, NewStack, TempBoard),
+    position(Board, Col, Row, Piece),
+    piece_belongs_to_player(Piece, Player),
+    promote_piece(Piece, PromotedPiece),
+    set_position(Board, Col, Row, PromotedPiece, TempBoard),
     update_sight_positions(TempBoard, Rest, Player, UpdatedBoard).
+
 update_sight_positions(Board, [_ | Rest], Player, UpdatedBoard) :-
     update_sight_positions(Board, Rest, Player, UpdatedBoard).
-
-add_piece_to_stack(Stack, Player, NewStack) :-
-    stack_for_player(Player, Piece),
-    append(Stack, [Piece], NewStack).
 
 
 %add pieces to all stacks in sight
@@ -208,31 +229,31 @@ clear_path(Board, [Col1, Row1], [Col2, Row2]) :-
         Piece \= [empty]).
 
 %check if a piece belongs to a player
-piece_belongs_to_player(Piece, Player1) :-
+piece_belongs_to_player(Piece, player1) :-
     member(Piece, [white_one, white_two, white_three, white_four, white_five]).
-piece_belongs_to_player(Piece, Player2) :-
+piece_belongs_to_player(Piece, player2) :-
     member(Piece, [black_one, black_two, black_three, black_four, black_five]).
 
 % Promote pieces in sight lines
-promote_pieces(Board, Player, [], Board).
-promote_pieces(Board, Player, [[Col, Row] | Rest], NewBoard) :-
+promote_pieces(Board, [], Board).
+promote_pieces(Board, [[Col, Row] | Rest], NewBoard) :-
     position(Board, Col, Row, Piece),
     promote_piece(Piece, NewPiece),
     set_position(Board, Col, Row, NewPiece, TempBoard),
-    promote_pieces(TempBoard, Player, Rest, NewBoard).
+    promote_pieces(TempBoard, Rest, NewBoard).
+
+demote_stack([Top | Rest], Rest) :- 
+    Top \= empty, % Certifica-se de que a stack não está vazia
+    !.
 
 % Promote a piece (e.g., white_one -> white_two)
-%promote_piece(white_one, white_two).
-%promote_piece(white_two, white_three).
-%promote_piece(white_three, white_four).
-%promote_piece(white_four, white_five).
-%promote_piece(black_one, black_two).
-%promote_piece(black_two, black_three).
-%promote_piece(black_three, black_four).
-%promote_piece(black_four, black_five).
-%promote_piece(Piece, Piece).  % No promotion if it's already at the highest level
+promote_piece(white_one, white_two).
+promote_piece(white_two, white_three).
+promote_piece(white_three, white_four).
+promote_piece(white_four, white_five).
+promote_piece(black_one, black_two).
+promote_piece(black_two, black_three).
+promote_piece(black_three, black_four).
+promote_piece(black_four, black_five).
+promote_piece(Piece, Piece).  % No promotion if it's already at the highest level
 
-promote_piece(Piece, [Piece | Stack], [Piece | NewStack]) :-
-    length(Stack, N),
-    N < 5, !.
-promote_piece(Stack, Stack).  % No promotion if it's already at the highest level 

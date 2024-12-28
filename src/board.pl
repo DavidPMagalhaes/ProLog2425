@@ -5,30 +5,26 @@ board.pl:
 :- use_module(settings).
 
 
-board(5,[
-    [[empty], [empty], [empty], [empty], [empty]],
-    [[empty], [empty], [empty], [empty], [empty]],
-    [[empty], [empty], [empty], [empty], [empty]],
-    [[empty], [empty], [empty], [empty], [empty]],
-    [[empty], [empty], [empty], [empty], [empty]]
+board(5, [
+    [empty, empty, empty, empty, empty],
+    [empty, empty, empty, empty, empty],
+    [empty, empty, empty, empty, empty],
+    [empty, empty, empty, empty, empty],
+    [empty, empty, empty, empty, empty]
 ]).
 
-symbol([empty], '|  |'):-!.
-symbol([black_one], '|B1|'):-!.
-symbol([black_two], '|B2|'):-!.
-symbol([black_three], '|B3|'):-!.
-symbol([black_four], '|B4|'):-!.
-symbol([black_five], '|B5|'):-!.
-symbol([white_one], '|W1|'):-!.
-symbol([white_two], '|W2|'):-!.
-symbol([white_three], '|W3|'):-!.
-symbol([white_four], '|W4|'):-!.
-symbol([white_five], '|W5|'):-!.
+symbol(empty, '|  |'):-!.
+symbol(black_one, '|B1|'):-!.
+symbol(black_two, '|B2|'):-!.
+symbol(black_three, '|B3|'):-!.
+symbol(black_four, '|B4|'):-!.
+symbol(black_five, '|B5|'):-!.
+symbol(white_one, '|W1|'):-!.
+symbol(white_two, '|W2|'):-!.
+symbol(white_three, '|W3|'):-!.
+symbol(white_four, '|W4|'):-!.
+symbol(white_five, '|W5|'):-!.
 
-symbol(Stack, Symbol) :-
-    length(Stack, N),
-    nth1(1, Stack, Top),
-    format(atom(Symbol), '|~w~d|', [Top, N]).
 
 position(Board, Col, Row, Piece) :-
     nth1(Row, Board, RowList),
