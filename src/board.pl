@@ -14,26 +14,27 @@ board(5, [
 ]).
 
 symbol(empty, '|  |'):-!.
-symbol(black_one, '|B1|'):-!.
-symbol(black_two, '|B2|'):-!.
-symbol(black_three, '|B3|'):-!.
-symbol(black_four, '|B4|'):-!.
-symbol(black_five, '|B5|'):-!.
-symbol(white_one, '|W1|'):-!.
-symbol(white_two, '|W2|'):-!.
-symbol(white_three, '|W3|'):-!.
-symbol(white_four, '|W4|'):-!.
-symbol(white_five, '|W5|'):-!.
+symbol(black1, '|B1|'):-!.
+symbol(black2, '|B2|'):-!.
+symbol(black3, '|B3|'):-!.
+symbol(black4, '|B4|'):-!.
+symbol(black5, '|B5|'):-!.
+symbol(white1, '|W1|'):-!.
+symbol(white2, '|W2|'):-!.
+symbol(white3, '|W3|'):-!.
+symbol(white4, '|W4|'):-!.
+symbol(white5, '|W5|'):-!.
 
 
 position(Board, Col, Row, Piece) :-
     nth1(Row, Board, RowList),
     nth1(Col, RowList, Piece).
- 
+
 set_position(Board, Col, Row, Piece, NewBoard) :-
     nth1(Row, Board, OldRow),
     replace_in_list(OldRow, Col, Piece, NewRow),
     replace_in_list(Board, Row, NewRow, NewBoard).
+
 
 replace_in_list(List, Index, Elem, NewList) :-
     nth1(Index, List, _, Rest),

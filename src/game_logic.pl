@@ -1,5 +1,5 @@
 
-:- module(game_logic, [game_loop/1, valid_moves/3, apply_move/4, player_has_stack/2, find_placement_moves/2, find_stack_moves/3, promote_pieces/3, update_sight_lines/3, piece_belongs_to_player/2]).
+:- module(game_logic, [game_loop/1, valid_moves/3, apply_move/4, player_has_stack/2, find_placement_moves/2, find_stack_moves/3, promote_pieces/3, update_sight_lines/3, piece_belongs_to_player/2, find_priority_stacks/3, atom_concat/3, atom_number/2, stack_size/2, max_list/2, demote_stack/2]).
 
 :- use_module(board).
 :- use_module(settings).
@@ -35,63 +35,96 @@ valid_moves(Board, Player, Moves) :-
         find_placement_moves(Board, Moves)
     ).
 
+% Encontra as stacks prioritárias (maior altura) de um jogador no tabuleiro
+find_priority_stacks(Board, Player, PriorityStacks) :-
+    % Obter todas as stacks do jogador com suas alturas
+    findall([Col, Row, Size],
+        (position(Board, Col, Row, Stack),
+         piece_belongs_to_player(Stack, Player),
+         stack_size(Stack, Size)), 
+        PlayerStacks),
+    % Encontra a altura máxima entre todas as stacks
+    findall(Size, member([_, _, Size], PlayerStacks), Sizes),
+    max_list(Sizes, MaxSize),  % Determina a altura máxima
+    % Filtra stacks com a altura máxima
+    include(has_max_size(MaxSize), PlayerStacks, PriorityStacks).
+
+% Verifica se a stack tem a altura máxima
+has_max_size(MaxSize, [_, _, Size]) :-
+    Size =:= MaxSize.
+
+% Base: Se a lista tem apenas um elemento, este é o máximo.
+max_list([X], X).
+
+% Recursão: O máximo é o maior entre a cabeça e o máximo do restante da lista.
+max_list([H | T], Max) :-
+    max_list(T, TailMax),
+    Max is max(H, TailMax).
+
+find_stack_moves(Board, Player, Moves) :-
+    find_priority_stacks(Board, Player, PriorityStacks),  % Obtemos as stacks prioritárias
+    findall([FromCol, FromRow, ToCol, ToRow],
+        (   member([FromCol, FromRow, _], PriorityStacks),  % Para cada stack prioritária
+            adjacent_space(Board, FromCol, FromRow, ToCol, ToRow),
+            position(Board, ToCol, ToRow, empty)  % Certifique-se de que o destino está vazio
+        ),
+        Moves).
+        
 % Check if a player has a stack on the board (only consider stacks with more than 1 piece)
 player_has_stack(Board, Player) :-
-    stack_for_player(Player, ValidStacks), % Lista de todas as pilhas válidas para o jogador
-    member(Row, Board),
-    member(Stack, Row),
-    member(Stack, ValidStacks), % Verifica se a stack pertence ao jogador
-    length(Stack, N),
-    N > 1. % Apenas considera pilhas com mais de 1 peça
+    player_stacks(Board, Player, Stacks),
+    Stacks \= []. % Verifica se há ao menos uma stack
+
+player_stacks(Board, Player, Stacks) :-
+    findall([Col, Row, Size],
+        (position(Board, Col, Row, Stack), 
+         piece_belongs_to_player(Stack, Player),
+         stack_size(Stack, Size), 
+         Size > 1), % Apenas considera stacks
+        Stacks).
+
+% Determinar a altura de uma stack
+stack_size(Stack, Size) :-
+    sub_atom(Stack, _, 1, 0, DigitChar),  % Extrai o último caractere do átomo
+    char_code(DigitChar, DigitCode),
+    DigitCode >= 49, % Código ASCII para '1'
+    DigitCode =< 57, % Código ASCII para '9'
+    Size is DigitCode - 48. % Converte código ASCII para número
+
+sub_atom(Atom, Start, Length, After, SubAtom) :-
+    atom_chars(Atom, CharList), % Converte o átomo em uma lista de caracteres
+    length(CharList, TotalLength),
+    StartEnd is Start + Length,
+    StartEnd =< TotalLength,
+    length(Prefix, Start), % Pega os primeiros 'Start' caracteres
+    append(Prefix, Rest, CharList), % Divide em prefixo e resto
+    length(Mid, Length), % Define o comprimento da substring
+    append(Mid, Suffix, Rest), % Divide o resto em substring e sufixo
+    length(Suffix, After), % Verifica o comprimento do sufixo
+    atom_chars(SubAtom, Mid). % Converte a substring de volta em átomo
+
+char_code(Char, Code) :-
+    atom_chars(Char, [C]), % Converte o átomo em uma lista de caracteres (deve ser único)
+    !, % Garante que é apenas um caractere
+    char_code_list(C, Code). % Procura o código na tabela
+
+% Tabela de mapeamento manual
+char_code_list('A', 65).
+char_code_list('B', 66).
+char_code_list('C', 67).
+
+char_code_list('0', 48).
+char_code_list('1', 49).
+char_code_list('2', 50).
+char_code_list('3', 51).
+char_code_list('4', 52).
+char_code_list('5', 53).
+
 
 % Find all valid type 1 (placement) moves
 find_placement_moves(Board, Moves) :-
     findall([Col, Row], position(Board, Col, Row, empty), Moves).
 
-% Find all valid type 2 (stack movement) moves
-find_stack_moves(Board, Player, Moves) :-
-    findall([FromCol, FromRow, ToCol, ToRow],
-            (   position(Board, FromCol, FromRow, Stack),
-                stack_belongs_to_player(Stack, Player),
-                adjacent_space(Board, FromCol, FromRow, ToCol, ToRow)
-            ),
-            Moves).
-
-% Check if a stack belongs to the player (only consider stacks with more than 1 piece)
-stack_belongs_to_player(Stack, Player) :-
-    stack_for_player(Player, Stack),
-    Stack \= white_one,  % Exclude single pieces (W1, B1)
-    Stack \= black_one.
-
-% Prioritize moves: stacks > single pieces; larger stacks > smaller stacks
-prioritize_moves(Moves, Board, Player, PrioritizedMoves) :-
-    include(stack_move(Board, Player), Moves, StackMoves),
-    include(placement_move(Board, Player), Moves, PlacementMoves),
-    sort_stacks(StackMoves, SortedStackMoves),
-    append(SortedStackMoves, PlacementMoves, PrioritizedMoves).
-
-stack_move(Board, Player, [FromCol, FromRow, ToCol, ToRow]) :-
-    position(Board, FromCol, FromRow, Stack),
-    stack_belongs_to_player(Stack, Player).
-
-placement_move(Board, Player, [Col, Row]) :-
-    position(Board, Col, Row, empty).
-
-sort_stacks(StackMoves, SortedStackMoves) :-
-    maplist(stack_size_pair, StackMoves, Pairs),
-    keysort(Pairs, SortedPairs),
-    pairs_values(SortedPairs, SortedStackMoves).
-
-pairs_values([], []).
-pairs_values([_-Value | Rest], [Value | Values]) :-
-    pairs_values(Rest, Values).
-
-stack_size_pair(Move, Size-Move) :-
-    stack_size(Move, Size).
-
-stack_size([FromCol, FromRow, _, _], Size) :-
-    position(Board, FromCol, FromRow, Stack),
-    length(Stack, Size).
 
 % Check for adjacent empty spaces
 adjacent_space(Board, FromCol, FromRow, ToCol, ToRow) :-
@@ -136,22 +169,26 @@ apply_move(Board, [Col, Row], Player, TempBoard) :-  % Type 1 move (place a piec
 
 
 % Define a peça inicial para cada jogador
-initial_piece(player1, white_one).
-initial_piece(player2, black_one).
+initial_piece(player1, white1).
+initial_piece(player2, black1).
 
-apply_move(Board, [FromCol, FromRow, ToCol, ToRow], Player, UpdatedBoard) :-  % Type 2 move (move a stack)
+apply_move(Board, [FromCol, FromRow, ToCol, ToRow], Player, UpdatedBoard) :-
+    % Atualizar a posição inicial para "empty"
     position(Board, FromCol, FromRow, Stack),
-    demote_stack(Stack, NewStack),
-    set_position(Board, FromCol, FromRow, NewStack, TempBoard1), % Remove from old position
-    stack_for_player(Player, TopPiece),
-    set_position(TempBoard1, ToCol, ToRow, TopPiece, TempBoard2), % Place on new position
-    update_sight_lines(TempBoard2, Player, UpdatedBoard). % Update sight lines here
+    stack_size(Stack, Size),
+    (   Size > 1
+    ->  demote_stack(Stack, NewStack),
+        set_position(Board, FromCol, FromRow, NewStack, TempBoard1)
+    ;   set_position(Board, FromCol, FromRow, empty, TempBoard1)
+    ),
+    % Colocar a nova peça na posição final
+    apply_move(TempBoard1, [ToCol, ToRow], Player, UpdatedBoard).
 
 % Get the stack corresponding to the player (this ensures the correct symbols are used)
 stack_for_player(player1, Stack) :-
-    member(Stack, [white_one, white_two, white_three, white_four, white_five]).
+    member(Stack, [white1, white2, white3, white4, white5]).
 stack_for_player(player2, Stack) :-
-    member(Stack, [black_one, black_two, black_three, black_four, black_five]).
+    member(Stack, [black1, black2, black3, black4, black5]).
 
 % Determine the next player
 next_player(player1, player2).
@@ -173,35 +210,6 @@ exclude_recently_played(PlayerPieces, RecentlyPlayed, PiecesToPromote) :-
 is_recently_played_or_enemy(RecentlyPlayed, [Col, Row]) :-
     RecentlyPlayed = [Col, Row]. % Exclui apenas a peça recentemente jogada
 
-%update stacks and singletons in sight lines
-update_stacks_in_sight(Board, [], _, Board).
-update_stacks_in_sight(Board, [[Col, Row] | Rest], Player, UpdatedBoard) :-
-    find_sight_positions(Board, [Col, Row], SightPositions),
-    update_sight_positions(Board, SightPositions, Player, TempBoard),
-    update_stacks_in_sight(TempBoard, Rest, Player, UpdatedBoard).
-
-update_sight_positions(Board, [], _, Board).
-update_sight_positions(Board, [[Col, Row] | Rest], Player, UpdatedBoard) :-
-    position(Board, Col, Row, Piece),
-    piece_belongs_to_player(Piece, Player),
-    promote_piece(Piece, PromotedPiece),
-    set_position(Board, Col, Row, PromotedPiece, TempBoard),
-    update_sight_positions(TempBoard, Rest, Player, UpdatedBoard).
-
-update_sight_positions(Board, [_ | Rest], Player, UpdatedBoard) :-
-    update_sight_positions(Board, Rest, Player, UpdatedBoard).
-
-
-%add pieces to all stacks in sight
-add_pieces_to_sight(Board, [], _, Board).
-add_pieces_to_sight(Board, [[Col, Row] | Rest], Player, NewBoard) :-
-    position(Board, Col, Row, Piece),
-    (   piece_belongs_to_player(Piece, Player) ->
-        promote_piece(Piece, NewPiece),
-        set_position(Board, Col, Row, NewPiece, TempBoard);
-        TempBoard = Board
-    ),
-    add_pieces_to_sight(TempBoard, Rest, Player, NewBoard).
 
 %find all positions in sight of a piece (same row, column, and diagonals)
 find_sight_positions(Board, [Col, Row], SightPositions) :-
@@ -230,9 +238,9 @@ clear_path(Board, [Col1, Row1], [Col2, Row2]) :-
 
 %check if a piece belongs to a player
 piece_belongs_to_player(Piece, player1) :-
-    member(Piece, [white_one, white_two, white_three, white_four, white_five]).
+    member(Piece, [white1, white2, white3, white4, white5]).
 piece_belongs_to_player(Piece, player2) :-
-    member(Piece, [black_one, black_two, black_three, black_four, black_five]).
+    member(Piece, [black1, black2, black3, black4, black5]).
 
 % Promote pieces in sight lines
 promote_pieces(Board, [], Board).
@@ -242,18 +250,19 @@ promote_pieces(Board, [[Col, Row] | Rest], NewBoard) :-
     set_position(Board, Col, Row, NewPiece, TempBoard),
     promote_pieces(TempBoard, Rest, NewBoard).
 
-demote_stack([Top | Rest], Rest) :- 
-    Top \= empty, % Certifica-se de que a stack não está vazia
-    !.
+% Demote a piece to the next lower level
+demote_stack(Stack, DemotedStack) :-
+    promote_piece(DemotedStack, Stack), % Reutiliza a lógica de promoção invertida
+    Stack \= DemotedStack, % Garante que houve "demotion"
+    !. % Caso contrário, falha
 
 % Promote a piece (e.g., white_one -> white_two)
-promote_piece(white_one, white_two).
-promote_piece(white_two, white_three).
-promote_piece(white_three, white_four).
-promote_piece(white_four, white_five).
-promote_piece(black_one, black_two).
-promote_piece(black_two, black_three).
-promote_piece(black_three, black_four).
-promote_piece(black_four, black_five).
+promote_piece(white1, white2).
+promote_piece(white2, white3).
+promote_piece(white3, white4).
+promote_piece(white4, white5).
+promote_piece(black1, black2).
+promote_piece(black2, black3).
+promote_piece(black3, black4).
+promote_piece(black4, black5).
 promote_piece(Piece, Piece).  % No promotion if it's already at the highest level
-
