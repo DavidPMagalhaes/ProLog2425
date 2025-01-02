@@ -1,7 +1,6 @@
 :- module(settings, [settings/1, sight/0]).
-
-
-:-use_module(board).
+:- use_module(game_logic).
+:- use_module(board).
 
 :- use_module(library(lists)).
 :- use_module(library(between)).
@@ -48,19 +47,26 @@ option(1):-
     read(Name2), 
     retractall(name_of(player2, _)), % Remove quaisquer fatos anteriores de player2
     asserta(name_of(player2, Name2)),
-    write('\n').
+    write('\n'),
+    choose_white_pieces,
+    board(5, Board), % Criação do tabuleiro inicial
+    game_loop([Board, StartingPlayer, [], 0]).
 
 option(2):-
     write('Player 1 Name'),
     read(Name1),
     asserta(name_of(player1, Name1)),
     asserta(name_of(player2,'Machine')), !,
-    set_difficulty(player2).
+    set_difficulty(player2),
+    board(5, Board), % Criação do tabuleiro inicial
+    game_loop_randplayer([Board, StartingPlayer, [], 0]).
 option(3):-
     asserta(name_of(player1, 'Machine1')),
     asserta(name_of(player2, 'Machine2')), !,
     set_difficulty(player1),
-    set_difficulty(player2).
+    set_difficulty(player2),
+    board(5, Board),
+    game_loop_rand([Board, StartingPlayer, [], 0]).
 
 
 
@@ -72,8 +78,7 @@ name_of(player2, player2).
 
 % Set Difficulty
 difficulty(1, easy).
-difficulty(2, normal).
-difficulty(3, hard).
+difficulty(2, hard).
 set_difficulty(Machine):-
     repeat,
     format('Select ~a difficulty:', [Machine]), nl,
@@ -110,6 +115,6 @@ choose_white_pieces :-
     ).
 
 settings([Board, Player, [], 0]) :-
-    read_initial_menu,
-    choose_white_pieces.
+    read_initial_menu.
+    
 

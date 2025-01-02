@@ -1,9 +1,10 @@
 
-:- module(game_logic, [game_loop/1, valid_moves/3, apply_move/4, player_has_stack/2, find_placement_moves/2, find_stack_moves/3, promote_pieces/3, update_sight_lines/3, piece_belongs_to_player/2, find_priority_stacks/3, atom_concat/3, atom_number/2, stack_size/2, max_list/2, demote_stack/2]).
+:- module(game_logic, [game_loop/1, game_loop_randplayer/1, game_loop_randbot/1, game_loop_rand/1, valid_moves/3, apply_move/4, player_has_stack/2, find_placement_moves/2, find_stack_moves/3, promote_pieces/3, update_sight_lines/3, piece_belongs_to_player/2, find_priority_stacks/3, atom_concat/3, atom_number/2, stack_size/2, max_list/2, demote_stack/2]).
 
 :- use_module(board).
 :- use_module(settings).
 :- use_module(library(between)).  % Import the 'between' predicate
+:- use_module(library(random)).
 
 % Main game loop
 game_loop([Board, Player, MoveHistory, TurnCount]) :-
@@ -16,6 +17,41 @@ game_loop([Board, Player, MoveHistory, TurnCount]) :-
         next_player(Player, NextPlayer),
         NewTurnCount is TurnCount + 1,
         game_loop([UpdatedBoard, NextPlayer, NewMoveHistory, NewTurnCount])
+    ).
+
+game_loop_randplayer([Board, Player, MoveHistory, TurnCount]) :-
+    display_game(Board),
+    (   game_over(Board, Player) ->
+        declare_winner(Player);
+        valid_moves(Board, Player, Moves),
+        play_turn(Board, Player, Moves, MoveHistory, TurnCount, NewBoard, NewMoveHistory),
+        update_sight_lines(NewBoard, Player, UpdatedBoard), % Update sight lines here
+        next_player(Player, NextPlayer),
+        NewTurnCount is TurnCount + 1,
+        game_loop_randbot([UpdatedBoard, NextPlayer, NewMoveHistory, NewTurnCount])
+    ).
+
+game_loop_randbot([Board, Player, MoveHistory, TurnCount]) :-
+    (   game_over(Board, Player) ->
+        declare_winner(Player);
+        valid_moves(Board, Player, Moves),
+        play_turn_random(Board, Player, Moves, MoveHistory, TurnCount, NewBoard, NewMoveHistory),
+        update_sight_lines(NewBoard, Player, UpdatedBoard), % Update sight lines here
+        next_player(Player, NextPlayer),
+        NewTurnCount is TurnCount + 1,
+        game_loop_randplayer([UpdatedBoard, NextPlayer, NewMoveHistory, NewTurnCount])
+    ).
+
+game_loop_rand([Board, Player, MoveHistory, TurnCount]) :-
+    display_game(Board),
+    (   game_over(Board, Player) ->
+        declare_winner(Player);
+        valid_moves(Board, Player, Moves),
+        play_turn_random(Board, Player, Moves, MoveHistory, TurnCount, NewBoard, NewMoveHistory),
+        update_sight_lines(NewBoard, Player, UpdatedBoard), % Update sight lines here
+        next_player(Player, NextPlayer),
+        NewTurnCount is TurnCount + 1,
+        game_loop_rand([UpdatedBoard, NextPlayer, NewMoveHistory, NewTurnCount])
     ).
 
 % Check if the game is over
@@ -47,7 +83,10 @@ find_priority_stacks(Board, Player, PriorityStacks) :-
     findall(Size, member([_, _, Size], PlayerStacks), Sizes),
     max_list(Sizes, MaxSize),  % Determina a altura máxima
     % Filtra stacks com a altura máxima
-    include(has_max_size(MaxSize), PlayerStacks, PriorityStacks).
+    findall([Col, Row, Size],
+        (member([Col, Row, Size], PlayerStacks), Size =:= MaxSize),
+        PriorityStacks).
+
 
 % Verifica se a stack tem a altura máxima
 has_max_size(MaxSize, [_, _, Size]) :-
@@ -146,6 +185,18 @@ play_turn(Board, Player, Moves, MoveHistory, TurnCount, NewBoard, NewMoveHistory
     set_last_played(SelectedMove, Player), % Registra a peça jogada
     NewBoard = TempBoard. % Atualiza o tabuleiro
 
+% Play a turn: randomly select a move and update the game state
+play_turn_random(Board, Player, Moves, MoveHistory, TurnCount, NewBoard, NewMoveHistory) :-
+    format('~w, it is your turn.~n', [Player]),
+    format('Valid moves: ~w~n', [Moves]),
+    random_move(Moves, SelectedMove),  % Select a random move
+    format('Selected move: ~w~n', [SelectedMove]),  % Debugging line
+    apply_move(Board, SelectedMove, Player, TempBoard),
+    append(MoveHistory, [SelectedMove], NewMoveHistory),
+    set_last_played(SelectedMove, Player), % Registra a peça jogada
+    NewBoard = TempBoard. % Atualiza o tabuleiro
+
+
 set_last_played([Col, Row], Player) :-
     retractall(last_played(Player, _)),
     assertz(last_played(Player, [Col, Row])).
@@ -205,7 +256,11 @@ update_sight_lines(Board, Player, UpdatedBoard) :-
 
 % Excluir a peça recentemente jogada
 exclude_recently_played(PlayerPieces, RecentlyPlayed, PiecesToPromote) :-
-    exclude(is_recently_played_or_enemy(RecentlyPlayed), PlayerPieces, PiecesToPromote).
+    findall(Piece,
+            (   member(Piece, PlayerPieces),
+                \+ is_recently_played_or_enemy(RecentlyPlayed, Piece)
+            ),
+            PiecesToPromote).
 
 is_recently_played_or_enemy(RecentlyPlayed, [Col, Row]) :-
     RecentlyPlayed = [Col, Row]. % Exclui apenas a peça recentemente jogada
@@ -266,3 +321,6 @@ promote_piece(black2, black3).
 promote_piece(black3, black4).
 promote_piece(black4, black5).
 promote_piece(Piece, Piece).  % No promotion if it's already at the highest level
+
+random_move(Moves, SelectedMove) :-
+    random_member(SelectedMove, Moves).
