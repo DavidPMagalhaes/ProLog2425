@@ -1,9 +1,17 @@
 
-:- module(game_logic, [game_loop/1, valid_moves/3, apply_move/4, player_has_stack/2, find_placement_moves/2, find_stack_moves/3, promote_pieces/3, update_sight_lines/3, piece_belongs_to_player/2, find_priority_stacks/3, atom_concat/3, atom_number/2, stack_size/2, max_list/2, demote_stack/2]).
+:- module(game_logic, [game_loop/1, valid_moves/3, apply_move/4, player_has_stack/2, find_placement_moves/2, find_stack_moves/3, promote_pieces/3, update_sight_lines/3, piece_belongs_to_player/2, find_priority_stacks/3, atom_concat/3, atom_number/2, stack_size/2, max_list/2, demote_stack/2, last_played/2, origin_stack/2, list_to_set/2]).
 
 :- use_module(board).
 :- use_module(settings).
 :- use_module(library(between)).  % Import the 'between' predicate
+:- dynamic last_played/2.
+:- dynamic origin_stack/2.
+
+
+
+last_played(player1, none).
+last_played(player2, none).
+
 
 % Main game loop
 game_loop([Board, Player, MoveHistory, TurnCount]) :-
@@ -13,6 +21,7 @@ game_loop([Board, Player, MoveHistory, TurnCount]) :-
         valid_moves(Board, Player, Moves),
         play_turn(Board, Player, Moves, MoveHistory, TurnCount, NewBoard, NewMoveHistory),
         update_sight_lines(NewBoard, Player, UpdatedBoard), % Update sight lines here
+        retractall(origin_stack(Player, _)),  % Remove origem usada
         next_player(Player, NextPlayer),
         NewTurnCount is TurnCount + 1,
         game_loop([UpdatedBoard, NextPlayer, NewMoveHistory, NewTurnCount])
@@ -138,13 +147,18 @@ adjacent_space(Board, FromCol, FromRow, ToCol, ToRow) :-
 
 % Play a turn: ask the player for input and update the game state
 play_turn(Board, Player, Moves, MoveHistory, TurnCount, NewBoard, NewMoveHistory) :-
-    format('~w, it is your turn.~n', [Player]),
-    format('Valid moves: ~w~n', [Moves]),
+    format('Starting turn for ~w~n', [Player]),
+    format('Available moves: ~w~n', [Moves]),
     prompt_move(Player, Moves, SelectedMove),
-    apply_move(Board, SelectedMove, Player, TempBoard),
-    append(MoveHistory, [SelectedMove], NewMoveHistory),
-    set_last_played(SelectedMove, Player), % Registra a peça jogada
-    NewBoard = TempBoard. % Atualiza o tabuleiro
+    format('Selected move: ~w~n', [SelectedMove]),
+    (   apply_move(Board, SelectedMove, Player, TempBoard) ->
+        append(MoveHistory, [SelectedMove], NewMoveHistory),
+        NewBoard = TempBoard,
+        format('Turn completed for ~w~n', [Player])
+    ;   write('Move failed, prompting again.'), nl,
+        fail  % Retorna ao `repeat` em `prompt_move`
+    ).
+
 
 set_last_played([Col, Row], Player) :-
     retractall(last_played(Player, _)),
@@ -154,10 +168,12 @@ set_last_played([Col, Row], Player) :-
 % Prompt the player to choose a move
 prompt_move(Player, Moves, SelectedMove) :-
     repeat,
+    format('Prompting move for ~w~n', [Player]), % Debugging line
     write('Enter your move (format: [Col, Row] or [FromCol, FromRow, ToCol, ToRow]): '),
     read(SelectedMove),
     format('You entered: ~w~n', [SelectedMove]), % Debugging line
     (   member(SelectedMove, Moves) ->
+        format('Valid move: ~w~n', [SelectedMove]),  % Adicione esta linha
         true;
         write('Invalid move, try again.'), nl, fail
     ).
@@ -165,7 +181,8 @@ prompt_move(Player, Moves, SelectedMove) :-
 % Apply the selected move to the board
 apply_move(Board, [Col, Row], Player, TempBoard) :-  % Type 1 move (place a piece)
     initial_piece(Player, Piece), % Garante que a peça inicial é usada
-    set_position(Board, Col, Row, Piece, TempBoard).
+    set_position(Board, Col, Row, Piece, TempBoard),
+    set_last_played([Col, Row], Player).
 
 
 % Define a peça inicial para cada jogador
@@ -173,16 +190,21 @@ initial_piece(player1, white1).
 initial_piece(player2, black1).
 
 apply_move(Board, [FromCol, FromRow, ToCol, ToRow], Player, UpdatedBoard) :-
-    % Atualizar a posição inicial para "empty"
+    format('Applying stack move: [~w,~w] -> [~w,~w] for ~w~n', [FromCol, FromRow, ToCol, ToRow, Player]),
     position(Board, FromCol, FromRow, Stack),
     stack_size(Stack, Size),
-    (   Size > 1
-    ->  demote_stack(Stack, NewStack),
-        set_position(Board, FromCol, FromRow, NewStack, TempBoard1)
-    ;   set_position(Board, FromCol, FromRow, empty, TempBoard1)
-    ),
-    % Colocar a nova peça na posição final
-    apply_move(TempBoard1, [ToCol, ToRow], Player, UpdatedBoard).
+    (   Size > 1 ->  % Apenas stacks com mais de 1 peça podem ser movidas
+        demote_stack(Stack, NewStack),
+        set_position(Board, FromCol, FromRow, NewStack, TempBoard1),  % Atualiza a origem
+        initial_piece(Player, TopPiece),
+        set_position(TempBoard1, ToCol, ToRow, TopPiece, TempBoard2), % Atualiza o destino
+        retractall(origin_stack(Player, _)),  % Remove origem anterior
+        assertz(origin_stack(Player, [FromCol, FromRow])),  % Registra a origem atual
+        set_last_played([ToCol, ToRow], Player),  % Registra o destino como a última jogada
+        UpdatedBoard = TempBoard2,
+        format('Move applied successfully.~n', [])
+    ;   write('Move failed: Stack size is not valid or demotion failed.'), nl, fail
+    ).
 
 % Get the stack corresponding to the player (this ensures the correct symbols are used)
 stack_for_player(player1, Stack) :-
@@ -196,12 +218,28 @@ next_player(player2, player1).
 
 % Update the sight lines after a move: Check up, down, left, right, and diagonals
 update_sight_lines(Board, Player, UpdatedBoard) :-
-    findall([Col, Row], 
-    (position(Board, Col, Row, Piece), piece_belongs_to_player(Piece, Player)), 
-    PlayerPieces),
     last_played(Player, RecentlyPlayed), % Recupera a última peça jogada
-    exclude_recently_played(PlayerPieces, RecentlyPlayed, PiecesToPromote),
-    promote_pieces(Board, PiecesToPromote, UpdatedBoard).
+    % Recupera origem (se for uma jogada de stack)
+    (   origin_stack(Player, Origin) -> true; Origin = none),
+    % Encontra peças para promoção
+    findall([Col, Row], 
+        (position(Board, Col, Row, Piece), 
+         piece_belongs_to_player(Piece, Player),
+         [Col, Row] \= RecentlyPlayed,  % Exclui peça recém-jogada
+         (Origin = none; [Col, Row] \= Origin)  % Exclui origem, se existir
+        ), 
+        PlayerPieces),
+    list_to_set(PlayerPieces, UniquePlayerPieces),
+    promote_pieces(Board, UniquePlayerPieces, UpdatedBoard).
+
+
+list_to_set([], []).
+list_to_set([H | T], Set) :-
+    member(H, T), !,
+    list_to_set(T, Set).
+list_to_set([H | T], [H | Set]) :-
+    list_to_set(T, Set).
+
 
 % Excluir a peça recentemente jogada
 exclude_recently_played(PlayerPieces, RecentlyPlayed, PiecesToPromote) :-
