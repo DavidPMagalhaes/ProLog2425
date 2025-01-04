@@ -50,6 +50,28 @@ game_loop_randbot([Board, Player, MoveHistory, TurnCount]) :-
         NewTurnCount is TurnCount + 1,
         game_loop_randplayer([UpdatedBoard, NextPlayer, NewMoveHistory, NewTurnCount])
     ).
+game_loop_smartplayer([Board, Player, MoveHistory, TurnCount]) :-
+    display_game(Board),
+    (   game_over(Board, Player) ->
+        declare_winner(Player);
+        valid_moves(Board, Player, Moves),
+        play_turn(Board, Player, Moves, MoveHistory, TurnCount, NewBoard, NewMoveHistory),
+        update_sight_lines(NewBoard, Player, UpdatedBoard), % Update sight lines here
+        next_player(Player, NextPlayer),
+        NewTurnCount is TurnCount + 1,
+        game_loop_smartbot([UpdatedBoard, NextPlayer, NewMoveHistory, NewTurnCount])
+    ).
+game_loop_smartbot([Board, Player, MoveHistory, TurnCount]) :-
+    display_game(Board),
+    (   game_over(Board, Player) ->
+        declare_winner(Player);
+        valid_moves(Board, Player, Moves),
+        play_turn_smart(Board, Player, Moves, MoveHistory, TurnCount, NewBoard, NewMoveHistory),
+        update_sight_lines(NewBoard, Player, UpdatedBoard), % Update sight lines here
+        next_player(Player, NextPlayer),
+        NewTurnCount is TurnCount + 1,
+        game_loop_smartplayer([UpdatedBoard, NextPlayer, NewMoveHistory, NewTurnCount])
+    ).
 game_loop_rand([Board, Player, MoveHistory, TurnCount]) :-
     display_game(Board),
     (   game_over(Board, Player) ->
@@ -60,6 +82,17 @@ game_loop_rand([Board, Player, MoveHistory, TurnCount]) :-
         next_player(Player, NextPlayer),
         NewTurnCount is TurnCount + 1,
         game_loop_rand([UpdatedBoard, NextPlayer, NewMoveHistory, NewTurnCount])
+    ).
+game_loop_smart([Board, Player, MoveHistory, TurnCount]) :-
+    display_game(Board),
+    (   game_over(Board, Player) ->
+        declare_winner(Player);
+        valid_moves(Board, Player, Moves),
+        play_turn_smart(Board, Player, Moves, MoveHistory, TurnCount, NewBoard, NewMoveHistory),
+        update_sight_lines(NewBoard, Player, UpdatedBoard), % Update sight lines here
+        next_player(Player, NextPlayer),
+        NewTurnCount is TurnCount + 1,
+        game_loop_smart([UpdatedBoard, NextPlayer, NewMoveHistory, NewTurnCount])
     ).
 
 
@@ -194,6 +227,68 @@ play_turn(Board, Player, Moves, MoveHistory, TurnCount, NewBoard, NewMoveHistory
     ;   write('Move failed, prompting again.'), nl,
         fail  % Retorna ao `repeat` em `prompt_move`
     ).
+
+play_turn_random(Board, Player, Moves, MoveHistory, TurnCount, NewBoard, NewMoveHistory) :-
+    format('~w, it is your turn.~n', [Player]),
+    format('Valid moves: ~w~n', [Moves]),
+    random_move(Moves, SelectedMove),  % Select a random move
+    format('Selected move: ~w~n', [SelectedMove]),  % Debugging line
+    apply_move(Board, SelectedMove, Player, TempBoard),
+    append(MoveHistory, [SelectedMove], NewMoveHistory),
+    set_last_played(SelectedMove, Player), % Registra a peça jogada
+    NewBoard = TempBoard. % Atualiza o tabuleiro
+
+random_move(Moves, SelectedMove) :-
+    random_member(SelectedMove, Moves).
+
+play_turn_smart(Board, Player, Moves, MoveHistory, TurnCount, NewBoard, NewMoveHistory) :-
+    format('~w, it is your turn.~n', [Player]),
+    format('Valid moves: ~w~n', [Moves]),
+    find_best_move(Board, Player, Moves, BestMove),
+    format('Selected move: ~w~n', [BestMove]),
+    apply_move(Board, BestMove, Player, TempBoard),
+    append(MoveHistory, [BestMove], NewMoveHistory),
+    set_last_played(BestMove, Player),
+    NewBoard = TempBoard.
+
+% Find the best move by scoring all valid moves
+find_best_move(Board, Player, Moves, BestMove) :-
+    maplist(score_move(Board, Player), Moves, ScoredMoves),
+    max_member(_-BestMove, ScoredMoves).
+
+% Score a move based on strategic considerations
+score_move(Board, Player, Move, Score-Move) :-
+    evaluate_move(Board, Player, Move, Score).
+
+% Evaluate the score of a move
+evaluate_move(Board, Player, Move, Score) :-
+    (   leads_to_promotion(Board, Player, Move) -> PromotionScore = 10; PromotionScore = 0),
+    (   threatens_opponent(Board, Player, Move) -> ThreatScore = 5; ThreatScore = 0),
+    (   defends_priority_stack(Board, Player, Move) -> DefenseScore = 7; DefenseScore = 0),
+    (   central_position(Board, Move) -> CentralScore = 3; CentralScore = 0),
+    Score is PromotionScore + ThreatScore + DefenseScore + CentralScore.
+
+% Example helper functions for scoring criteria
+leads_to_promotion(Board, Player, [Col, Row]) :-
+    position(Board, Col, Row, Piece),
+    promote_piece(Piece, _).
+
+threatens_opponent(Board, Player, [ToCol, ToRow]) :-
+    next_player(Player, Opponent),
+    position(Board, ToCol, ToRow, Stack),
+    piece_belongs_to_player(Stack, Opponent).
+
+defends_priority_stack(Board, Player, [FromCol, FromRow, ToCol, ToRow]) :-
+    position(Board, FromCol, FromRow, Stack),
+    stack_size(Stack, Size),
+    Size > 1,
+    piece_belongs_to_player(Stack, Player).
+
+central_position(Board, [Col, Row]) :-
+    board_size(Board, Size),
+    Middle is Size // 2,
+    abs(Col - Middle) =< 1,
+    abs(Row - Middle) =< 1.
 
 
 set_last_played([Col, Row], Player) :-

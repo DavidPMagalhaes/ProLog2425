@@ -51,24 +51,45 @@ option(1):-
     choose_white_pieces,
     board(5, Board), % Criação do tabuleiro inicial
     game_loop([Board, StartingPlayer, [], 0]).
-
 option(2):-
-    write('Player 1 Name'),
+    write('Player 1 Name: '),
     read(Name1),
     asserta(name_of(player1, Name1)),
-    asserta(name_of(player2,'Machine')), !,
-    set_difficulty(player2),
-    board(5, Board), % Criação do tabuleiro inicial
-    game_loop_randplayer([Board, StartingPlayer, [], 0]).
+    asserta(name_of(player2, 'Machine')), !,
+    set_difficulty(Difficulty),
+    choose_white_pieces,
+    board(5, Board), % Create the initial board
+    (   Difficulty = easy
+    ->  (   starts_first(player1)
+        ->  game_loop_randplayer([Board, player1, [], 0])
+        ;   game_loop_randbot([Board, player2, [], 0])
+        )
+    ;   (   starts_first(player1)
+        ->  game_loop_smartplayer([Board, player1, [], 0])
+        ;   game_loop_smartbot([Board, player2, [], 0])
+        )
+    ).
 option(3):-
     asserta(name_of(player1, 'Machine1')),
     asserta(name_of(player2, 'Machine2')), !,
-    set_difficulty(player1),
-    set_difficulty(player2),
-    board(5, Board),
-    game_loop_rand([Board, StartingPlayer, [], 0]).
-
-
+    write('Set difficulty for Machine1:'), nl,
+    set_difficulty(Difficulty1),
+    asserta(difficulty_of(player1, Difficulty1)),
+    write('Set difficulty for Machine2:'), nl,
+    set_difficulty(Difficulty2),
+    asserta(difficulty_of(player2, Difficulty2)),
+    choose_white_pieces,
+    board(5, Board), % Create the initial board
+    (   starts_first(player1)
+    ->  (   difficulty_of(player1, easy)
+        ->  game_loop_rand([Board, player1, [], 0])
+        ;   game_loop_smart([Board, player1, [], 0])
+        )
+    ;   (   difficulty_of(player2, easy)
+        ->  game_loop_rand([Board, player2, [], 0])
+        ;   game_loop_smart([Board, player2, [], 0])
+        )
+    ).
 
 :- dynamic name_of/2.
 
@@ -79,9 +100,9 @@ name_of(player2, player2).
 % Set Difficulty
 difficulty(1, easy).
 difficulty(2, hard).
-set_difficulty(Machine):-
+set_difficulty(Difficulty):-
     repeat,
-    format('Select ~a difficulty:', [Machine]), nl,
+    write('Select difficulty:'), nl,
     write_difficulty_list,
     read(DifficultyNumber),
     (   difficulty(DifficultyNumber, DifficultyName)
