@@ -6,10 +6,6 @@
 :- use_module(library(between)).
 :- use_module(library(system), [now/1]).
 
-
-
-
-
 % Header
 sight:-
     write('======================\n'),
@@ -33,9 +29,6 @@ write_inital_menu :-
     write(N), write('. '), write(Name), nl,
     fail.
 write_inital_menu.
-
-
-
 
 % Initial Menu Options
 option(1):-

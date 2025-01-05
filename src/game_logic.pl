@@ -9,11 +9,8 @@
 :- dynamic last_played/2.
 :- dynamic origin_stack/2.
 
-
-
 last_played(player1, none).
 last_played(player2, none).
-
 
 % Main game loop
 game_loop([Board, Player, MoveHistory, TurnCount]) :-
@@ -94,7 +91,6 @@ game_loop_smart([Board, Player, MoveHistory, TurnCount]) :-
         NewTurnCount is TurnCount + 1,
         game_loop_smart([UpdatedBoard, NextPlayer, NewMoveHistory, NewTurnCount])
     ).
-
 
 % Check if the game is over
 game_over(Board, Player) :-
@@ -198,11 +194,9 @@ char_code_list('3', 51).
 char_code_list('4', 52).
 char_code_list('5', 53).
 
-
 % Find all valid type 1 (placement) moves
 find_placement_moves(Board, Moves) :-
     findall([Col, Row], position(Board, Col, Row, empty), Moves).
-
 
 % Check for adjacent empty spaces
 adjacent_space(Board, FromCol, FromRow, ToCol, ToRow) :-
@@ -290,11 +284,9 @@ central_position(Board, [Col, Row]) :-
     abs(Col - Middle) =< 1,
     abs(Row - Middle) =< 1.
 
-
 set_last_played([Col, Row], Player) :-
     retractall(last_played(Player, _)),
     assertz(last_played(Player, [Col, Row])).
-
 
 % Prompt the player to choose a move
 prompt_move(Player, Moves, SelectedMove) :-
@@ -314,7 +306,6 @@ apply_move(Board, [Col, Row], Player, TempBoard) :-  % Type 1 move (place a piec
     initial_piece(Player, Piece), % Garante que a peça inicial é usada
     set_position(Board, Col, Row, Piece, TempBoard),
     set_last_played([Col, Row], Player).
-
 
 % Define a peça inicial para cada jogador
 initial_piece(player1, white1).
@@ -363,14 +354,12 @@ update_sight_lines(Board, Player, UpdatedBoard) :-
     list_to_set(PlayerPieces, UniquePlayerPieces),
     promote_pieces(Board, UniquePlayerPieces, UpdatedBoard).
 
-
 list_to_set([], []).
 list_to_set([H | T], Set) :-
     member(H, T), !,
     list_to_set(T, Set).
 list_to_set([H | T], [H | Set]) :-
     list_to_set(T, Set).
-
 
 % Excluir a peça recentemente jogada
 exclude_recently_played(PlayerPieces, RecentlyPlayed, PiecesToPromote) :-
